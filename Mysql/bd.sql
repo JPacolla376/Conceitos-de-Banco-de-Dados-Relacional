@@ -210,49 +210,88 @@ GROUP BY f.titulo;
 -- Se o item não está associado a um aluguel ativo (ou seja, devolvido ou não alugado), a função retorna 1 (disponível).
 -- Caso contrário, retorna 0 (indisponível).
 
-CREATE FUNCTION Controle_Inventario (itemID_FunGoDoido INT) RETURNS INT
+DELIMITER $$
+
+CREATE FUNCTION Controle_Inventario(itemID_FunGoDoido INT) RETURNS INT
 BEGIN
     DECLARE itens_no_barraco INT;
-    SELECT COUNT(*) INTO itens_no_barraco
+
+    -- Conta os itens que estão disponíveis no estoque (não alugados ou devolvidos)
+    SELECT COUNT(*)
+    INTO itens_no_barraco
     FROM Item i
-    WHERE i.id = itemID_FunGoDoido 
-      AND (i.aluguel_id IS NULL OR 
-           EXISTS (SELECT 1 FROM Aluguel a WHERE a.id = i.aluguel_id AND a.data_devolucao IS NOT NULL));
-           
-    -- Estrturinha báica de condição de verdadeiro ou falso
+    LEFT JOIN Aluguel a ON i.aluguel_id = a.id
+    WHERE i.id = itemID_FunGoDoido
+      AND (i.aluguel_id IS NULL OR a.data_devolucao IS NOT NULL);
+    
+    -- Verifica se há itens disponíveis e retorna 1 se verdadeiro, caso contrário, 0
     IF itens_no_barraco > 0 THEN
         RETURN 1;
     ELSE
         RETURN 0;
     END IF;
-END;
+END $$
+
+DELIMITER ;
+
 
 
  -- 2e) Procedimento para listar nomes dos atores com limite de registros
 -- Lista até 'limite' nomes de atores da tabela Ator.
 -- Procedimento Listar_Atores
+-- Muda o delimitador padrão (;) para ($$) temporariamente.
+-- Isso é necessário para evitar conflitos com os pontos e vírgulas (;) usados dentro do procedimento.
+DELIMITER $$
+
+-- Criação do procedimento 'Listar_Atores'.
+-- Este procedimento recebe um parâmetro de entrada chamado 'quantiaDeAtores' que determina quantos nomes de atores serão listados.
 CREATE PROCEDURE Listar_Atores (IN quantiaDeAtores INT)
 BEGIN
+    -- Seleciona os nomes dos atores da tabela 'Ator', limitando a quantidade de registros retornados ao valor fornecido por 'quantiaDeAtores'.
     SELECT nome FROM Ator LIMIT quantiaDeAtores;
-END;
+END $$  -- Fim da definição do procedimento 'Listar_Atores' usando o delimitador ($$).
 
--- Procedimento Filmes_Em_Estoque
+-- Restaura o delimitador padrão (;) após a definição do procedimento.
+DELIMITER ;
+
+-- Muda o delimitador padrão (;) para ($$) novamente para definir outro procedimento.
+DELIMITER $$
+
+-- Criação do procedimento 'Filmes_Em_Estoque'.
+-- Este procedimento recebe dois parâmetros de entrada: 'filmeID_Bang' e 'lojaID_Tranqueira'.
+-- 'filmeID_Bang' refere-se ao ID do filme e 'lojaID_Tranqueira' refere-se ao ID da loja.
 CREATE PROCEDURE Filmes_Em_Estoque (IN filmeID_Bang INT, IN lojaID_Tranqueira INT)
 BEGIN
+    -- Seleciona a quantidade de um filme específico (identificado por 'filmeID_Bang') em estoque em uma loja específica (identificada por 'lojaID_Tranqueira').
     SELECT quantidade 
     FROM Estoque 
     WHERE filme_id = filmeID_Bang AND loja_id = lojaID_Tranqueira;
-END;
+END $$  -- Fim da definição do procedimento 'Filmes_Em_Estoque'.
 
--- Procedimento Filmes_Alugados
+-- Restaura o delimitador padrão (;).
+DELIMITER ;
+
+-- Muda o delimitador padrão (;) para ($$) para definir outro procedimento.
+DELIMITER $$
+
+-- Criação de'Filmes_Alugados'.
+-- Este procedimento recebe dois parâmetros de entrada: 'filmeID_Maluco' e 'lojaID_Pancada'.
+-- 'filmeID_Maluco' refere-se ao ID do filme e 'lojaID_Pancada' refere-se ao ID da loja.
 CREATE PROCEDURE Filmes_Alugados (IN filmeID_Maluco INT, IN lojaID_Pancada INT)
 BEGIN
+    -- Conta o número total de itens de um filme específico (identificado por 'filmeID_Maluco') que estão atualmente alugados (não devolvidos) em uma loja específica (identificada por 'lojaID_Pancada').
     SELECT COUNT(*) AS total_alugados
-    FROM Item i
-    JOIN Aluguel a ON i.aluguel_id = a.id
-    JOIN Estoque e ON i.filme_id = e.filme_id
-    WHERE e.filme_id = filmeID_Maluco AND e.loja_id = lojaID_Pancada AND a.data_devolucao IS NULL;
-END;
+    FROM Item i  -- Tabela 'Item' que relaciona filmes com aluguéis.
+    JOIN Aluguel a ON i.aluguel_id = a.id  -- Junta a tabela 'Item' com a tabela 'Aluguel' para acessar os detalhes do aluguel.
+    WHERE i.filme_id = filmeID_Maluco  -- Filtra para o filme específico usando 'filmeID_Maluco'.
+      AND a.loja_id = lojaID_Pancada  -- Filtra para a loja específica usando 'lojaID_Pancada'.
+      AND a.data_devolucao IS NULL;  -- Filtra para incluir apenas aluguéis que ainda não foram devolvidos (onde 'data_devolucao' é NULL).
+END $$  -- Fim da definição do procedimento 'Filmes_Alugados'.
+
+-- Restaura o delimitador padrão (;).
+DELIMITER ;
+
+
 
 
 -- 2f) Adicionar coluna 'criado_em' para registrar a data de criação do cliente.
@@ -260,12 +299,25 @@ END;
 ALTER TABLE Cliente ADD COLUMN criado_em DATETIME;
 
 -- 2g) Trigger que atualiza a coluna 'criado_em' com a data e hora atual antes de cada atualização no registro de Cliente.
+-- Adiciona a coluna 'atualizado_em' à tabela Cliente, se não existir.
+ALTER TABLE Cliente 
+ADD COLUMN atualizado_em DATETIME;
+
+DELIMITER $$
+
+-- Cria o trigger 'cliente_before_update'.
+-- Este trigger é disparado antes de qualquer atualização na tabela Cliente.
 CREATE TRIGGER cliente_before_update
 BEFORE UPDATE ON Cliente
 FOR EACH ROW
 BEGIN
-    SET NEW.criado_em = NOW(); -- Define a data e hora atuais
-END;
+    -- Define a coluna 'atualizado_em' para a data e hora atuais (momento da atualização).
+    SET NEW.atualizado_em = NOW();
+END $$
+
+-- Restaura o delimitador padrão.
+DELIMITER ;
+
 
 
 -- 2h) Criação da tabela 'Log' para registrar mensagens de log de atualizações em clientes.
@@ -275,12 +327,32 @@ CREATE TABLE Log (
 );
 
 -- 2i) Trigger que insere uma mensagem de log na tabela 'Log' após cada atualização na tabela 'Cliente'.
+-- Essa tabela armazenará as mensagens de log.
+-- A coluna 'msg' deve ser do tipo VARCHAR ou TEXT para armazenar as mensagens de log.
+    
+CREATE TABLE IF NOT EXISTS Log (
+    id INT AUTO_INCREMENT PRIMARY KEY,  -- Adiciona uma coluna ID como chave primária.
+    msg TEXT,  -- Coluna para armazenar as mensagens de log.
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Coluna para registrar quando a mensagem foi criada.
+);
+
+-- Alterar o delimitador padrão para evitar conflitos com o delimitador ';'.
+DELIMITER $$
+
+-- Cria o trigger 'cliente_AFTER_UPDATE'.
+-- Esse trigger é acionado após (AFTER) uma atualização (UPDATE) na tabela 'Cliente'.
 CREATE TRIGGER cliente_AFTER_UPDATE
 AFTER UPDATE ON Cliente
 FOR EACH ROW
 BEGIN
-    INSERT INTO Log (msg) VALUES (CONCAT('Cliente atualizado: ', NEW.id));  -- Registra o ID do cliente atualizado no log.
-END;
+    -- Insere uma mensagem de log na tabela 'Log'.
+    -- A mensagem é concatenada com o texto 'Cliente atualizado: ' e o ID do cliente atualizado.
+    INSERT INTO Log (msg) VALUES (CONCAT('Cliente atualizado: ', NEW.id));
+END $$
+
+-- Restaura o delimitador padrão ';'.
+DELIMITER ;
+
 
 -- 2j) Criar um novo usuário chamado 'novo_usuario' com uma senha segura.
 
